@@ -1,62 +1,47 @@
 import os
-import shutil
-import pytest
 import pandas as pd
-from unittest.mock import patch, MagicMock
+from datetime import datetime
 
-# Import functions from the script under test
-import download_experiments_and_datasets as ded
+# === CONFIGURATION ===
+def get_output_directory(project_id: str) -> str:
+    """Generate a timestamped output directory for a project."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return os.path.join("output", f"{project_id}_{timestamp}")
 
-@pytest.fixture(scope="function")
-def temp_output_dir(tmp_path):
-    # Patch the OUTPUT_DIRECTORY to a temporary path
-    original_output_dir = ded.OUTPUT_DIRECTORY
-    ded.OUTPUT_DIRECTORY = str(tmp_path)
-    yield tmp_path
-    ded.OUTPUT_DIRECTORY = original_output_dir
+# Dummy placeholder for API or data fetching logic
+def get_data(endpoint: str):
+    """
+    Simulate or fetch data from a given endpoint.
+    This function should return a list of dictionaries representing items.
+    Each item should have 'id' and 'data' keys.
+    """
+    raise NotImplementedError("You must implement get_data() to fetch real data.")
 
-@patch("download_experiments_and_datasets.get_data")
-def test_download_experiments_and_datasets(mock_get_data, temp_output_dir):
-    # Prepare mock experiments and datasets
-    mock_experiments = [
-        {"id": 1, "data": [{"a": 1, "b": 2}, {"a": 3, "b": 4}]},
-        {"id": 2, "data": [{"a": 5, "b": 6}]}
-    ]
-    mock_datasets = [
-        {"id": 100, "data": [{"x": "foo", "y": "bar"}]},
-        {"id": 200, "data": [{"x": "baz", "y": "qux"}, {"x": "quux", "y": "corge"}]}
-    ]
+def download_experiments(output_dir: str):
+    """Download experiments and save each one to a separate CSV file."""
+    experiments = get_data("experiments")  # Returns list of {id, data}
+    for exp in experiments:
+        exp_id = exp["id"]
+        df = pd.DataFrame(exp["data"])
+        filepath = os.path.join(output_dir, f"experiment_{exp_id}.csv")
+        df.to_csv(filepath, index=False)
 
-    # The order of get_data calls: experiments endpoint, then datasets endpoint
-    mock_get_data.side_effect = [mock_experiments, mock_datasets]
+def download_datasets(output_dir: str):
+    """Download datasets and save each one to a separate CSV file."""
+    datasets = get_data("datasets")  # Returns list of {id, data}
+    for ds in datasets:
+        ds_id = ds["id"]
+        df = pd.DataFrame(ds["data"])
+        filepath = os.path.join(output_dir, f"dataset_{ds_id}.csv")
+        df.to_csv(filepath, index=False)
 
-    # Call main (which will use the mocked get_data)
-    ded.main()
+def main(project_id="project123"):
+    """Main entry point: prepares output directory and triggers downloads."""
+    output_dir = get_output_directory(project_id)
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"Saving files to: {output_dir}")
+    download_experiments(output_dir)
+    download_datasets(output_dir)
 
-    # Check that experiment CSVs were created
-    exp1_path = os.path.join(ded.OUTPUT_DIRECTORY, "experiment_1.csv")
-    exp2_path = os.path.join(ded.OUTPUT_DIRECTORY, "experiment_2.csv")
-    assert os.path.exists(exp1_path)
-    assert os.path.exists(exp2_path)
-    df1 = pd.read_csv(exp1_path)
-    df2 = pd.read_csv(exp2_path)
-    pd.testing.assert_frame_equal(
-        df1, pd.DataFrame(mock_experiments[0]["data"])
-    )
-    pd.testing.assert_frame_equal(
-        df2, pd.DataFrame(mock_experiments[1]["data"])
-    )
-
-    # Check that dataset CSVs were created
-    ds1_path = os.path.join(ded.OUTPUT_DIRECTORY, "dataset_100.csv")
-    ds2_path = os.path.join(ded.OUTPUT_DIRECTORY, "dataset_200.csv")
-    assert os.path.exists(ds1_path)
-    assert os.path.exists(ds2_path)
-    df_ds1 = pd.read_csv(ds1_path)
-    df_ds2 = pd.read_csv(ds2_path)
-    pd.testing.assert_frame_equal(
-        df_ds1, pd.DataFrame(mock_datasets[0]["data"])
-    )
-    pd.testing.assert_frame_equal(
-        df_ds2, pd.DataFrame(mock_datasets[1]["data"])
-    )
+if __name__ == "__main__":
+    main()
