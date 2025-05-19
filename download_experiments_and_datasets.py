@@ -1,55 +1,62 @@
 import os
-import requests
+import shutil
+import pytest
 import pandas as pd
+from unittest.mock import patch, MagicMock
 
-# Replace with project-specific API endpoint and authentication token
-API_BASE_URL = "https://api.example.com/projects/{project_id}"
-AUTH_TOKEN = "your_auth_token_here"
-OUTPUT_DIRECTORY = "output_directory"
+# Import functions from the script under test
+import download_experiments_and_datasets as ded
 
-# Ensure the output directory exists
-os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
+@pytest.fixture(scope="function")
+def temp_output_dir(tmp_path):
+    # Patch the OUTPUT_DIRECTORY to a temporary path
+    original_output_dir = ded.OUTPUT_DIRECTORY
+    ded.OUTPUT_DIRECTORY = str(tmp_path)
+    yield tmp_path
+    ded.OUTPUT_DIRECTORY = original_output_dir
 
-def get_data(endpoint):
-    """Fetch data from the API endpoint."""
-    headers = {"Authorization": f"Bearer {AUTH_TOKEN}"}
-    response = requests.get(endpoint, headers=headers)
-    response.raise_for_status()
-    return response.json()
+@patch("download_experiments_and_datasets.get_data")
+def test_download_experiments_and_datasets(mock_get_data, temp_output_dir):
+    # Prepare mock experiments and datasets
+    mock_experiments = [
+        {"id": 1, "data": [{"a": 1, "b": 2}, {"a": 3, "b": 4}]},
+        {"id": 2, "data": [{"a": 5, "b": 6}]}
+    ]
+    mock_datasets = [
+        {"id": 100, "data": [{"x": "foo", "y": "bar"}]},
+        {"id": 200, "data": [{"x": "baz", "y": "qux"}, {"x": "quux", "y": "corge"}]}
+    ]
 
-def save_to_csv(data, filename):
-    """Save the data to a CSV file."""
-    df = pd.DataFrame(data)
-    output_path = os.path.join(OUTPUT_DIRECTORY, filename)
-    df.to_csv(output_path, index=False)
-    print(f"Saved: {output_path}")
+    # The order of get_data calls: experiments endpoint, then datasets endpoint
+    mock_get_data.side_effect = [mock_experiments, mock_datasets]
 
-def main():
-    try:
-        # Fetch all experiments
-        experiments_url = f"{API_BASE_URL}/experiments"
-        experiments = get_data(experiments_url)
-        
-        # Save each experiment to its own CSV
-        for experiment in experiments:
-            file_name = f"experiment_{experiment['id']}.csv"
-            save_to_csv(experiment["data"], file_name)
+    # Call main (which will use the mocked get_data)
+    ded.main()
 
-        # Fetch all datasets
-        datasets_url = f"{API_BASE_URL}/datasets"
-        datasets = get_data(datasets_url)
-        
-        # Save each dataset to its own CSV
-        for dataset in datasets:
-            file_name = f"dataset_{dataset['id']}.csv"
-            save_to_csv(dataset["data"], file_name)
+    # Check that experiment CSVs were created
+    exp1_path = os.path.join(ded.OUTPUT_DIRECTORY, "experiment_1.csv")
+    exp2_path = os.path.join(ded.OUTPUT_DIRECTORY, "experiment_2.csv")
+    assert os.path.exists(exp1_path)
+    assert os.path.exists(exp2_path)
+    df1 = pd.read_csv(exp1_path)
+    df2 = pd.read_csv(exp2_path)
+    pd.testing.assert_frame_equal(
+        df1, pd.DataFrame(mock_experiments[0]["data"])
+    )
+    pd.testing.assert_frame_equal(
+        df2, pd.DataFrame(mock_experiments[1]["data"])
+    )
 
-        print("All experiments and datasets have been downloaded.")
-    
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred while communicating with the API: {e}")
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-
-if __name__ == "__main__":
-    main()
+    # Check that dataset CSVs were created
+    ds1_path = os.path.join(ded.OUTPUT_DIRECTORY, "dataset_100.csv")
+    ds2_path = os.path.join(ded.OUTPUT_DIRECTORY, "dataset_200.csv")
+    assert os.path.exists(ds1_path)
+    assert os.path.exists(ds2_path)
+    df_ds1 = pd.read_csv(ds1_path)
+    df_ds2 = pd.read_csv(ds2_path)
+    pd.testing.assert_frame_equal(
+        df_ds1, pd.DataFrame(mock_datasets[0]["data"])
+    )
+    pd.testing.assert_frame_equal(
+        df_ds2, pd.DataFrame(mock_datasets[1]["data"])
+    )
